@@ -65,12 +65,19 @@ interface TaskStoreState {
   toasts: ToastItem[];
   simulateError: boolean;
   lastFocusedTaskId: string | null;
+  selectedTaskId: string[];
+  duplicateTask: (id: string) => Promise<Task | null>;
+  toggleSelectedTask: (id: string) => void;
+  clearSelectedTask: () => void;
+  bulkUpdateStatus: (targetStatus: TaskStatus) => Promise<void>;
 
   // Lifecycle & Multi-tab sync
   initialize: () => Promise<void>;
   setTasksFromExternal: (tasks: Task[]) => void;
   setLastFocusedTaskId: (id: string | null) => void;
   toggleSimulateError: () => void;
+
+  
 
   // Toast actions
   addToast: (toast: Omit<ToastItem, 'id'>) => string;
@@ -111,6 +118,67 @@ export const useTaskStore = create<TaskStoreState>((set, get) => ({
   toasts: [],
   simulateError: false,
   lastFocusedTaskId: null,
+  selectedTaskId: [],
+
+  toggleSelectedTask: (id) => {
+    const current = get().selectedTaskId;
+    set({
+      selectedTaskId: current?.includes(id)
+      ? current.filter((item) => item !== id)
+      : [...current, id],
+    })
+  },
+
+  clearSelectedTask: () => {
+    set({ selectedTaskId: [] });
+  },
+
+  bulkUpdateStatus: async (targetStatus) => {
+    const selectedIds = get().selectedTaskId;
+    if (selectedIds.length === 0) return;
+
+    const previousTasks = get().tasks;
+    const selectSet = new Set(selectedIds);
+
+    if(targetStatus === 'done') {
+    const invalidTasks = previousTasks.find((t) =>
+      selectSet.has(t.id) && t.subtasks.some((st) => !st.done));
+    if (invalidTasks) {
+      get().addToast({
+        type: 'error',
+        message: `Không thể chuyển hàng loạt sang Done vì "${invalidTasks.title}" còn subtasks chưa hoàn thành`,
+      });
+      return;
+    }
+  }
+
+    const nowIso = new Date().toISOString();
+    const nextTasks = previousTasks.map((t) => {
+      if (!selectSet.has(t.id)) return t;
+      return {
+        ...t,
+        status: targetStatus,
+        updatedAt: nowIso,
+        completedAt: targetStatus === 'done' ? nowIso : null,
+      };
+    });
+
+    set({ tasks: nextTasks, selectedTaskId: [] });
+
+    try {
+      await taskService.saveBatchTasks(nextTasks);
+      get().addToast({
+        type: 'success',
+        message: `Đã chuyển ${selectedIds.length} công việc sang trạng thái "${targetStatus}"`,
+      });
+    } catch {
+      set({tasks: previousTasks});
+      get().addToast({
+        type: 'error',
+        message: 'Lỗi khi cập nhật trạng thái công việc',
+      });
+    }
+  },
 
   initialize: async () => {
     if (get().isInitialized) return;
@@ -161,6 +229,31 @@ export const useTaskStore = create<TaskStoreState>((set, get) => ({
 
     return id;
   },
+
+  duplicateTask: async (id) => {
+    const source = get().tasks.find((t) => t.id === id);
+    if(!source) return null;
+
+    const sourceDeadlineMs = new Date(source.deadline).getTime();
+    const futureDeadline = sourceDeadlineMs > Date.now()
+      ? source.deadline
+      : new Date(Date.now() + 86400000).toISOString();
+
+    return get().addTask({
+      title: `${source.title} (Bản sao)`,
+      description: source.description,
+      deadline: futureDeadline,
+      status: source.status,
+      priority: source.priority,
+      tags: [...source.tags],
+      subtasks: source.subtasks.map((st) => ({
+         ...st,
+         id: crypto.randomUUID(),
+         done: false, 
+      })),
+    });
+  },
+
 
   dismissToast: (id) => {
     set((state) => ({
@@ -302,6 +395,18 @@ export const useTaskStore = create<TaskStoreState>((set, get) => ({
       nextCompletedAt = null;
     }
 
+    const nextSubtasks = patch.subtasks ?? target.subtasks;
+    if(
+      nextStatus === 'done' &&
+      nextSubtasks.some((st) => !st.done)
+    ) {
+      get().addToast({
+        type: 'error',
+        message: 'Không thể đánh dấu công việc là "Hoàn thành" khi còn subtasks chưa hoàn thành',
+      });
+      return false;
+    }
+
     const optimisticUpdated: Task = {
       ...target,
       ...patch,
@@ -394,6 +499,17 @@ export const useTaskStore = create<TaskStoreState>((set, get) => ({
     const previousTasks = get().tasks;
     const activeTask = previousTasks.find((t) => t.id === activeId);
     if (!activeTask) return;
+
+    if(
+      targetStatus === 'done' &&
+      activeTask.subtasks.some((st) => !st.done)
+    ) {
+      get().addToast({
+        type: 'error',
+        message: 'Không thể chuyển chuyển sang done khi công việc chưa hoàn thành subtasks',
+      })
+      return;
+    }
 
     const nowIso = new Date().toISOString();
     let completedAt = activeTask.completedAt;

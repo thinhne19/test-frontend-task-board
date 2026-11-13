@@ -343,7 +343,11 @@ export function TaskDetailModal({
       <ConfirmDialog
         isOpen={showDeleteConfirm}
         title="Xác nhận xóa công việc"
-        description={`Bạn có chắc chắn muốn xóa công việc "${task.title}"? Bạn vẫn có thể nhấn Hoàn tác (Undo) trong vòng 5 giây sau khi xóa.`}
+        description={
+          task.subtasks.length > 0
+          ? `Bạn có chắc muốn xoá "${task.title}"? công việc này đang có ${task.subtasks.length} subtask chưa hoàn thành.`
+          : `Bạn có chắc muốn xoá "${task.title}"? không?`
+        }
         confirmLabel="Xóa công việc"
         cancelLabel="Hủy bỏ"
         variant="danger"

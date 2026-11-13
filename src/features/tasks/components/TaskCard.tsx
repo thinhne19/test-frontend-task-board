@@ -8,6 +8,7 @@ import { getDeadlineUrgency } from '../utils/dateUtils';
 import { DeadlineBadge } from './DeadlineBadge';
 import { HighlightText } from './HighlightText';
 import { PriorityBadge } from './PriorityBadge';
+import { useTaskStore } from '../store/useTaskStore';
 
 interface TaskCardProps {
   task: Task;
@@ -39,6 +40,10 @@ export const TaskCard = memo(function TaskCard({
   const totalSubtasks = task.subtasks.length;
   const subtaskPercent =
     totalSubtasks > 0 ? Math.round((completedSubtasks / totalSubtasks) * 100) : 0;
+  const isSelected = useTaskStore((s) => s.selectedTaskId.includes(task.id));
+  const toggleSelectedTask = useTaskStore((s) => s.toggleSelectedTask);
+  const selectedTaskId = useTaskStore((s) => s.selectedTaskId);
+  console.log(selectedTaskId);
 
   return (
     <article
@@ -88,6 +93,15 @@ export const TaskCard = memo(function TaskCard({
         </div>
 
         {/* Title with search highlight */}
+        <input
+          type="checkbox"
+          checked={isSelected}
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleSelectedTask(task.id);
+          }}
+          className="absolute right-3 top-3 h-4 w-4 cursor-pointer rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+        />
         <h3
           className={`mt-2.5 text-sm font-semibold leading-snug text-slate-900 group-hover:text-indigo-600 ${
             task.status === 'done' ? 'line-through text-slate-500' : ''
